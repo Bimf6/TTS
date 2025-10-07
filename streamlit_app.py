@@ -35,26 +35,45 @@ def ui() -> None:
         api_key = st.text_input("API Key", type="password", value=default_api_key)
         model = st.selectbox("Model", ["speech-1.5", "speech-1.6", "s1", "s1-mini"], index=0)
         speech_speed = st.slider("Speech Speed", 0.5, 2.0, 1.0, 0.1)
-        voice_id = st.text_input("Voice ID (optional)")
+        voice_mode = st.radio("Voice Source", ["Default voice", "Reference tape"], index=0, horizontal=False)
+        voice_id = None
+        if voice_mode == "Default voice":
+            voice_id = st.text_input("Voice ID", help="Choose a default voice ID; leave empty to let the model pick")
 
     text = st.text_area("Text", placeholder="Type text to synthesize...", height=160)
 
     col_a, col_b = st.columns(2)
     with col_a:
-        ref_audio = st.file_uploader("Reference Audio (optional)", type=["wav", "mp3", "flac", "ogg"]) 
+        ref_audio = st.file_uploader(
+            "Reference Audio" + (" (required)" if voice_mode == "Reference tape" else " (optional)"),
+            type=["wav", "mp3", "flac", "ogg"]
+        )
     with col_b:
-        ref_text = st.text_area("Reference Text (optional)", height=120)
+        ref_text = st.text_area(
+            "Reference Text" + (" (required)" if voice_mode == "Reference tape" else " (optional)"),
+            height=120
+        )
 
     if st.button("Generate"):
-        ref_b64 = None
-        if ref_audio is not None:
-            data = ref_audio.getvalue()
-            if len(data) > 10 * 1024 * 1024:
-                st.error("Audio too large (max 10MB)")
+        if voice_mode == "Reference tape":
+            if not ref_audio or not (ref_text and ref_text.strip()):
+                st.error("Reference audio and matching reference text are required when using Reference tape")
                 return
-            ref_b64 = to_b64(data)
+        ref_b64 = None
+        send_voice_id = None
+        send_ref_text = None
+        if voice_mode == "Default voice":
+            send_voice_id = (voice_id or None)
+        else:
+            if ref_audio is not None:
+                data = ref_audio.getvalue()
+                if len(data) > 10 * 1024 * 1024:
+                    st.error("Audio too large (max 10MB)")
+                    return
+                ref_b64 = to_b64(data)
+            send_ref_text = (ref_text or None)
         with st.spinner("Generating..."):
-            audio, err = call_tts(api_key, text, model, speech_speed, voice_id or None, ref_b64, ref_text or None)
+            audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
         if audio:
             st.success("Done")
             st.audio(audio, format="audio/wav")
