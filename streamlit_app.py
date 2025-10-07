@@ -2,19 +2,28 @@ import streamlit as st
 import requests
 import base64
 import os
+from typing import Optional, Tuple, List, Dict
 
 st.set_page_config(page_title="Fish Audio TTS", page_icon="🐟", layout="centered")
 
 def to_b64(data: bytes) -> str:
     return base64.b64encode(data).decode("utf-8")
 
-def call_tts(api_key: str, text: str, model: str, speed: float, voice_id: str | None, ref_audio_b64: str | None, ref_text: str | None) -> tuple[bytes | None, str]:
+def call_tts(
+    api_key: str,
+    text: str,
+    model: str,
+    speed: float,
+    voice_id: Optional[str],
+    ref_audio_b64: Optional[str],
+    ref_text: Optional[str],
+) -> Tuple[Optional[bytes], str]:
     if not api_key:
         return None, "Missing API key"
     if not text.strip():
         return None, "Enter text"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload: dict[str, object] = {"text": text, "model": model, "speech_speed": speed, "format": "wav"}
+    payload: Dict[str, object] = {"text": text, "model": model, "speech_speed": speed, "format": "wav"}
     if voice_id:
         payload["voice_id"] = voice_id
     if ref_audio_b64 and ref_text:
@@ -28,6 +37,29 @@ def call_tts(api_key: str, text: str, model: str, speed: float, voice_id: str | 
     except Exception as e:
         return None, str(e)
 
+def fetch_voices(api_key: str) -> Tuple[List[Dict[str, str]], str]:
+    if not api_key:
+        return [], "Missing API key"
+    try:
+        headers = {"Authorization": f"Bearer {api_key}"}
+        # If Fish Audio exposes a voices listing endpoint, try it; otherwise return empty
+        resp = requests.get("https://api.fish.audio/v1/voices", headers=headers, timeout=20)
+        if resp.status_code == 200:
+            data = resp.json()
+            voices = []
+            # Accept either {voices:[{id,name}]} or a flat list
+            raw = data.get("voices", data)
+            if isinstance(raw, list):
+                for v in raw:
+                    vid = str(v.get("id") or v.get("voice_id") or "").strip()
+                    name = str(v.get("name") or vid).strip()
+                    if vid:
+                        voices.append({"id": vid, "name": name})
+            return voices, ""
+        return [], f"API {resp.status_code}: {resp.text}"
+    except Exception as e:
+        return [], str(e)
+
 def ui() -> None:
     st.title("🐟 Fish Audio TTS")
     with st.sidebar:
@@ -36,9 +68,30 @@ def ui() -> None:
         model = st.selectbox("Model", ["speech-1.5", "speech-1.6", "s1", "s1-mini"], index=0)
         speech_speed = st.slider("Speech Speed", 0.5, 2.0, 1.0, 0.1)
         voice_mode = st.radio("Voice Source", ["Default voice", "Reference tape"], index=0, horizontal=False)
-        voice_id = None
+        selected_voice_id: Optional[str] = None
         if voice_mode == "Default voice":
-            voice_id = st.text_input("Voice ID", help="Choose a default voice ID; leave empty to let the model pick")
+            st.markdown("Load and choose from available default voices, or enter a custom voice ID.")
+            if "voices" not in st.session_state:
+                st.session_state["voices"] = []
+            if st.button("Load voices"):
+                voices, err = fetch_voices(api_key)
+                if voices:
+                    st.session_state["voices"] = voices
+                    st.success(f"Loaded {len(voices)} voices")
+                else:
+                    st.warning(err or "No voices available")
+            voices = st.session_state.get("voices", [])
+            if voices:
+                options = [f"{v['name']} ({v['id']})" for v in voices]
+                choice = st.selectbox("Default Voices", options)
+                try:
+                    idx = options.index(choice)
+                    selected_voice_id = voices[idx]["id"]
+                except Exception:
+                    selected_voice_id = None
+            custom_voice = st.text_input("Or custom Voice ID", value="")
+            if custom_voice.strip():
+                selected_voice_id = custom_voice.strip()
 
     text = st.text_area("Text", placeholder="Type text to synthesize...", height=160)
 
@@ -60,10 +113,10 @@ def ui() -> None:
                 st.error("Reference audio and matching reference text are required when using Reference tape")
                 return
         ref_b64 = None
-        send_voice_id = None
+        send_voice_id: Optional[str] = None
         send_ref_text = None
         if voice_mode == "Default voice":
-            send_voice_id = (voice_id or None)
+            send_voice_id = selected_voice_id or None
         else:
             if ref_audio is not None:
                 data = ref_audio.getvalue()
