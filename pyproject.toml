@@ -1,3 +1,8 @@
+[project]
+name = "streamlit-app"
+version = "1.0.0"
+dependencies = []
+
 [build-system]
-requires = []
+requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
