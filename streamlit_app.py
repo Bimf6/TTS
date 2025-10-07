@@ -26,23 +26,37 @@ def call_tts(
     payload: Dict[str, object] = {"text": text, "model": model, "speech_speed": speed, "format": "wav"}
     if voice_id:
         payload["voice_id"] = voice_id
+    # Prefer references array schema for cloning; fallback to older fields if needed
+    primary_payload = dict(payload)
     if ref_audio_b64 and ref_text:
-        payload["reference_audio"] = ref_audio_b64
-        payload["reference_text"] = ref_text
+        primary_payload.pop("voice_id", None)
+        primary_payload["references"] = [{"audio": ref_audio_b64, "text": ref_text}]
     try:
-        r = requests.post("https://api.fish.audio/v1/tts", json=payload, headers=headers, timeout=60)
+        if ref_audio_b64 and ref_text:
+            r = requests.post("https://api.fish.audio/v1/tts", json=primary_payload, headers=headers, timeout=60)
+            if r.status_code == 400 or r.status_code == 404:
+                fallback_payload = dict(payload)
+                fallback_payload.pop("voice_id", None)
+                fallback_payload["reference_audio"] = ref_audio_b64
+                fallback_payload["reference_text"] = ref_text
+                r = requests.post("https://api.fish.audio/v1/tts", json=fallback_payload, headers=headers, timeout=60)
+        else:
+            r = requests.post("https://api.fish.audio/v1/tts", json=payload, headers=headers, timeout=60)
         if r.status_code == 200:
             return r.content, ""
         return None, f"API {r.status_code}: {r.text}"
     except Exception as e:
         return None, str(e)
 
-def fetch_voices(api_key: str) -> Tuple[List[Dict[str, str]], str]:
+def fetch_voices(api_key: str, model: str) -> Tuple[List[Dict[str, str]], str]:
     if not api_key:
         return [], "Missing API key"
     try:
         headers = {"Authorization": f"Bearer {api_key}"}
         endpoints = [
+            f"https://api.fish.audio/v1/voices?model={model}",
+            f"https://api.fish.audio/v1/voices/list?model={model}",
+            f"https://api.fish.audio/v1/voice/list?model={model}",
             "https://api.fish.audio/v1/voices",
             "https://api.fish.audio/v1/voices/list",
             "https://api.fish.audio/v1/voice/list",
@@ -87,7 +101,7 @@ def ui() -> None:
             if "voices" not in st.session_state:
                 st.session_state["voices"] = []
             if st.button("Load voices"):
-                voices, err = fetch_voices(api_key)
+                voices, err = fetch_voices(api_key, model)
                 if voices:
                     st.session_state["voices"] = voices
                     st.success(f"Loaded {len(voices)} voices")
