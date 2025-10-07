@@ -1,6 +1,15 @@
-[build-system]
-requires = ["setuptools>=40.8.0", "wheel"]
-build-backend = "setuptools.build_meta:__legacy__"
+[project]
+name = "tts-app"
+version = "0.0.0"
+dependencies = []
 
 [tool.setuptools]
 packages = []
+py-modules = []
+
+[tool.uv]
+package = false
+
+[build-system]
+requires = ["setuptools>=40.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
