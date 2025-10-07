@@ -1,9 +1,0 @@
-[project]
-name = "fish-audio-tts-webui"
-version = "1.0.0"
-description = "Fish Audio TTS Web Interface"
-requires-python = ">=3.8"
-
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
