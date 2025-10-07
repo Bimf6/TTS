@@ -11,3 +11,6 @@ build-backend = "setuptools.build_meta:__legacy__"
 [tool.setuptools]
 packages = []
 py-modules = []
+
+[tool.uv]
+package = false
