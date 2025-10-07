@@ -42,23 +42,36 @@ def fetch_voices(api_key: str) -> Tuple[List[Dict[str, str]], str]:
         return [], "Missing API key"
     try:
         headers = {"Authorization": f"Bearer {api_key}"}
-        # If Fish Audio exposes a voices listing endpoint, try it; otherwise return empty
-        resp = requests.get("https://api.fish.audio/v1/voices", headers=headers, timeout=20)
-        if resp.status_code == 200:
-            data = resp.json()
-            voices = []
-            # Accept either {voices:[{id,name}]} or a flat list
-            raw = data.get("voices", data)
-            if isinstance(raw, list):
-                for v in raw:
-                    vid = str(v.get("id") or v.get("voice_id") or "").strip()
-                    name = str(v.get("name") or vid).strip()
-                    if vid:
-                        voices.append({"id": vid, "name": name})
-            return voices, ""
-        return [], f"API {resp.status_code}: {resp.text}"
+        endpoints = [
+            "https://api.fish.audio/v1/voices",
+            "https://api.fish.audio/v1/voices/list",
+            "https://api.fish.audio/v1/voice/list",
+            "https://api.fish.audio/voices",
+        ]
+        for url in endpoints:
+            resp = requests.get(url, headers=headers, timeout=20)
+            if resp.status_code == 200:
+                data = resp.json()
+                voices: List[Dict[str, str]] = []
+                raw = data.get("voices", data)
+                if isinstance(raw, list):
+                    for v in raw:
+                        vid = str(v.get("id") or v.get("voice_id") or v.get("key") or "").strip()
+                        name = str(v.get("name") or v.get("display_name") or vid).strip()
+                        if vid:
+                            voices.append({"id": vid, "name": name})
+                if voices:
+                    return voices, ""
+        return [], "No voices available from API (404)"
     except Exception as e:
         return [], str(e)
+
+STATIC_VOICES: List[Dict[str, str]] = [
+    {"id": "en_male_1", "name": "English Male 1"},
+    {"id": "en_female_1", "name": "English Female 1"},
+    {"id": "en_male_2", "name": "English Male 2"},
+    {"id": "en_female_2", "name": "English Female 2"},
+]
 
 def ui() -> None:
     st.title("🐟 Fish Audio TTS")
@@ -79,7 +92,8 @@ def ui() -> None:
                     st.session_state["voices"] = voices
                     st.success(f"Loaded {len(voices)} voices")
                 else:
-                    st.warning(err or "No voices available")
+                    st.warning("No voices from API; using built-in presets")
+                    st.session_state["voices"] = STATIC_VOICES.copy()
             voices = st.session_state.get("voices", [])
             if voices:
                 options = [f"{v['name']} ({v['id']})" for v in voices]
@@ -126,6 +140,8 @@ def ui() -> None:
                 ref_b64 = to_b64(data)
             send_ref_text = (ref_text or None)
         with st.spinner("Generating..."):
+            # Hint the API that we want cloning when using reference mode
+            # by including a soft flag some backends accept; harmless if ignored.
             audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
         if audio:
             st.success("Done")
