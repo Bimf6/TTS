@@ -3,6 +3,10 @@ import requests
 import base64
 import os
 from typing import Optional, Tuple, List, Dict
+try:
+    import ormsgpack  # local server cloning
+except Exception:  # noqa: PIE786
+    ormsgpack = None
 
 st.set_page_config(page_title="Fish Audio TTS", page_icon="🐟", layout="centered")
 
@@ -120,6 +124,8 @@ def ui() -> None:
         api_key = st.text_input("API Key", type="password", value=default_api_key)
         model = st.selectbox("Model", ["speech-1.5", "speech-1.6", "s1", "s1-mini"], index=0)
         speech_speed = st.slider("Speech Speed", 0.5, 2.0, 1.0, 0.1)
+        backend = st.radio("Backend", ["Fish Cloud API", "Local Fish Server"], index=0)
+        server_url = st.text_input("Local Server URL", value="http://127.0.0.1:8080/v1/tts", disabled=(backend != "Local Fish Server"))
         voice_mode = st.radio("Voice Source", ["Default voice", "Reference tape"], index=0, horizontal=False)
         selected_voice_id: Optional[str] = None
         if voice_mode == "Default voice":
@@ -180,9 +186,42 @@ def ui() -> None:
                 ref_b64 = to_b64(data)
             send_ref_text = (ref_text or None)
         with st.spinner("Generating..."):
-            # Hint the API that we want cloning when using reference mode
-            # by including a soft flag some backends accept; harmless if ignored.
-            audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
+            if backend == "Local Fish Server" and voice_mode == "Reference tape":
+                if ormsgpack is None:
+                    st.error("Local cloning requires 'ormsgpack'. Install with: pip install ormsgpack")
+                    return
+                try:
+                    import io
+                    raw_bytes = ref_audio.getvalue()
+                    payload = {
+                        "text": text,
+                        "references": [{"audio": raw_bytes, "text": send_ref_text or ""}],
+                        "format": "wav",
+                        "streaming": False,
+                        "use_memory_cache": "off",
+                        "chunk_length": 300,
+                        "max_new_tokens": 0,
+                        "top_p": 0.8,
+                        "repetition_penalty": 1.1,
+                        "temperature": 0.8,
+                        "seed": None,
+                    }
+                    headers = {"content-type": "application/msgpack"}
+                    r = requests.post(
+                        server_url,
+                        data=ormsgpack.packb(payload),
+                        headers=headers,
+                        timeout=90,
+                    )
+                    if r.status_code == 200:
+                        audio = r.content
+                        err = ""
+                    else:
+                        audio, err = None, f"Local API {r.status_code}: {r.text}"
+                except Exception as e:  # noqa: PIE786
+                    audio, err = None, str(e)
+            else:
+                audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
         if audio:
             st.success("Done")
             st.audio(audio, format="audio/wav")
