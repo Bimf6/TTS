@@ -1,6 +1,7 @@
 [project]
-name = "app"
-version = "0.0.0"
+name = "streamlit-app"
+version = "1.0.0"
+description = "Fish Audio TTS Streamlit App"
 dependencies = []
 
 [build-system]
