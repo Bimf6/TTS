@@ -258,14 +258,21 @@ def ui() -> None:
                     audio, err = None, str(e)
             else:
                 if FishSession is not None:
-                    raw_bytes = None
-                    if voice_mode == "Reference tape" and ref_audio is not None:
+                    if voice_mode == "Reference tape":
+                        if ref_audio is None:
+                            st.error("Reference audio required")
+                            return
                         raw_bytes = ref_audio.getvalue()
-                    audio, err = call_tts_sdk(api_key, text, reference_model_id or send_voice_id, raw_bytes, send_ref_text)
-                    if not audio:
-                        audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
+                        audio, err = call_tts_sdk(api_key, text, None, raw_bytes, send_ref_text)
+                        if not audio:
+                            audio, err = call_tts(api_key, text, model, speech_speed, None, ref_b64, send_ref_text)
+                    else:
+                        ref_id = reference_model_id or send_voice_id
+                        audio, err = call_tts_sdk(api_key, text, ref_id, None, None)
+                        if not audio:
+                            audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, None, None)
                 else:
-                    audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
+                    audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id if voice_mode == "Default voice" else None, ref_b64 if voice_mode == "Reference tape" else None, send_ref_text if voice_mode == "Reference tape" else None)
         if audio:
             st.success("Done")
             st.audio(audio, format="audio/wav")
