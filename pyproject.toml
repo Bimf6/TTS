@@ -1,14 +1,10 @@
 [project]
-name = "tts-app"
+name = "app"
 version = "0.0.0"
 dependencies = []
 
 [tool.setuptools]
-packages = []
-py-modules = []
-
-[tool.uv]
-package = false
+packages = ["app"]
 
 [build-system]
 requires = ["setuptools>=40.8.0", "wheel"]
