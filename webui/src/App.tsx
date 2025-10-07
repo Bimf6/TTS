@@ -255,26 +255,34 @@ function App() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-600">Reference Audio (Optional)</label>
-                <input 
-                  type="file" 
-                  accept="audio/*" 
-                  onChange={handleReferenceAudioChange} 
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" 
-                />
-                <p className="text-xs text-gray-500 mt-1">Upload a reference audio file for voice cloning</p>
-              </div>
+              <div className="border-2 border-dashed border-green-300 rounded-lg p-4 bg-green-50">
+                <h3 className="text-lg font-semibold text-green-800 mb-3">🎤 Voice Cloning Options</h3>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2 text-green-700">Reference Audio File</label>
+                  <input 
+                    type="file" 
+                    accept="audio/*" 
+                    onChange={handleReferenceAudioChange} 
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-100 file:text-green-800 hover:file:bg-green-200" 
+                  />
+                  <p className="text-xs text-green-600 mt-1">Upload a reference audio file for voice cloning (WAV, MP3, FLAC, OGG)</p>
+                  {referenceAudio && (
+                    <p className="text-xs text-green-700 mt-1 font-medium">✅ Selected: {referenceAudio.name}</p>
+                  )}
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-600">Reference Text (Optional)</label>
-                <textarea
-                  value={referenceText}
-                  onChange={e => setReferenceText(e.target.value)}
-                  rows={2}
-                  className="block w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  placeholder="Enter the text that corresponds to the reference audio..."
-                />
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-green-700">Reference Text</label>
+                  <textarea
+                    value={referenceText}
+                    onChange={e => setReferenceText(e.target.value)}
+                    rows={3}
+                    className="block w-full border border-green-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+                    placeholder="Enter the text that corresponds to the reference audio..."
+                  />
+                  <p className="text-xs text-green-600 mt-1">Enter the exact text spoken in the reference audio for better voice cloning</p>
+                </div>
               </div>
 
               <button
