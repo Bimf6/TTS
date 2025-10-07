@@ -32,16 +32,42 @@ def call_tts(
         primary_payload.pop("voice_id", None)
         primary_payload["references"] = [{"audio": ref_audio_b64, "text": ref_text}]
     try:
+        # Hint parameters that some backends expect
+        payload.setdefault("latency", "normal")
+        primary_payload.setdefault("latency", "normal")
         if ref_audio_b64 and ref_text:
-            r = requests.post("https://api.fish.audio/v1/tts", json=primary_payload, headers=headers, timeout=60)
-            if r.status_code == 400 or r.status_code == 404:
+            # Attempt 1: JSON with references[] schema
+            r = requests.post("https://api.fish.audio/v1/tts", json=primary_payload, headers=headers, timeout=90)
+            if r.status_code != 200:
+                # Attempt 2: Legacy JSON with reference_audio/reference_text fields
                 fallback_payload = dict(payload)
                 fallback_payload.pop("voice_id", None)
                 fallback_payload["reference_audio"] = ref_audio_b64
                 fallback_payload["reference_text"] = ref_text
-                r = requests.post("https://api.fish.audio/v1/tts", json=fallback_payload, headers=headers, timeout=60)
+                r = requests.post("https://api.fish.audio/v1/tts", json=fallback_payload, headers=headers, timeout=90)
+                if r.status_code != 200:
+                    # Attempt 3: Multipart/form-data with raw audio file
+                    try:
+                        import io, base64 as _b64
+                        audio_bytes = _b64.b64decode(ref_audio_b64)
+                        files = {"reference_audio": ("ref.wav", io.BytesIO(audio_bytes), "audio/wav")}
+                        data = {
+                            "text": text,
+                            "model": model,
+                            "speech_speed": str(speed),
+                            "format": "wav",
+                            "reference_text": ref_text,
+                            "latency": "normal",
+                        }
+                        if voice_id:
+                            data["voice_id"] = voice_id
+                        # Use no JSON header for multipart
+                        form_headers = {"Authorization": f"Bearer {api_key}"}
+                        r = requests.post("https://api.fish.audio/v1/tts", data=data, files=files, headers=form_headers, timeout=90)
+                    except Exception:
+                        pass
         else:
-            r = requests.post("https://api.fish.audio/v1/tts", json=payload, headers=headers, timeout=60)
+            r = requests.post("https://api.fish.audio/v1/tts", json=payload, headers=headers, timeout=90)
         if r.status_code == 200:
             return r.content, ""
         return None, f"API {r.status_code}: {r.text}"
