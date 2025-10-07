@@ -6,11 +6,7 @@ dependencies = []
 
 [build-system]
 requires = ["setuptools>=40.8.0", "wheel"]
-build-backend = "setuptools.build_meta:__legacy__"
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = []
-py-modules = []
-
-[tool.uv]
-package = false
+packages = ["streamlit_app"]
