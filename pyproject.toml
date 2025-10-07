@@ -1,7 +1,0 @@
-[project]
-name = "app"
-version = "0.1.0"
-dependencies = []
-
-[tool.setuptools]
-py-modules = []
