@@ -1,5 +1,5 @@
 [project]
-name = "app"
+name = "streamlit-app"
 version = "1.0.0"
 description = "Fish Audio TTS Streamlit App"
 dependencies = []
@@ -9,4 +9,4 @@ requires = ["setuptools>=40.8.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["app"]
+packages = ["app", "streamlit_app"]
