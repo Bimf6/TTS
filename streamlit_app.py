@@ -7,6 +7,12 @@ try:
     import ormsgpack  # local server cloning
 except Exception:  # noqa: PIE786
     ormsgpack = None
+try:
+    from fish_audio_sdk import Session as FishSession, TTSRequest, ReferenceAudio
+except Exception:  # noqa: PIE786
+    FishSession = None  # type: ignore
+    TTSRequest = None  # type: ignore
+    ReferenceAudio = None  # type: ignore
 
 st.set_page_config(page_title="Fish Audio TTS", page_icon="🐟", layout="centered")
 
@@ -78,6 +84,34 @@ def call_tts(
     except Exception as e:
         return None, str(e)
 
+def call_tts_sdk(
+    api_key: str,
+    text: str,
+    reference_id: Optional[str],
+    ref_audio_bytes: Optional[bytes],
+    ref_text: Optional[str],
+) -> Tuple[Optional[bytes], str]:
+    if FishSession is None or TTSRequest is None:
+        return None, "fish-audio-sdk not installed"
+    if not api_key:
+        return None, "Missing API key"
+    if not text.strip():
+        return None, "Enter text"
+    try:
+        session = FishSession(api_key)
+        req_kwargs: Dict[str, object] = {"text": text}
+        if reference_id:
+            req_kwargs["reference_id"] = reference_id
+        if ref_audio_bytes is not None and (ref_text and ref_text.strip()):
+            req_kwargs["references"] = [ReferenceAudio(audio=ref_audio_bytes, text=ref_text)]
+        req = TTSRequest(**req_kwargs)
+        audio_chunks: List[bytes] = []
+        for chunk in session.tts(req):
+            audio_chunks.append(chunk)
+        return b"".join(audio_chunks), ""
+    except Exception as e:
+        return None, str(e)
+
 def fetch_voices(api_key: str, model: str) -> Tuple[List[Dict[str, str]], str]:
     if not api_key:
         return [], "Missing API key"
@@ -128,6 +162,7 @@ def ui() -> None:
         server_url = st.text_input("Local Server URL", value="http://127.0.0.1:8080/v1/tts", disabled=(backend != "Local Fish Server"))
         voice_mode = st.radio("Voice Source", ["Default voice", "Reference tape"], index=0, horizontal=False)
         selected_voice_id: Optional[str] = None
+        reference_model_id: Optional[str] = None
         if voice_mode == "Default voice":
             st.markdown("Load and choose from available default voices, or enter a custom voice ID.")
             if "voices" not in st.session_state:
@@ -152,6 +187,7 @@ def ui() -> None:
             custom_voice = st.text_input("Or custom Voice ID", value="")
             if custom_voice.strip():
                 selected_voice_id = custom_voice.strip()
+            reference_model_id = st.text_input("Reference Model ID (reference_id)", value="")
 
     text = st.text_area("Text", placeholder="Type text to synthesize...", height=160)
 
@@ -221,7 +257,15 @@ def ui() -> None:
                 except Exception as e:  # noqa: PIE786
                     audio, err = None, str(e)
             else:
-                audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
+                if FishSession is not None:
+                    raw_bytes = None
+                    if voice_mode == "Reference tape" and ref_audio is not None:
+                        raw_bytes = ref_audio.getvalue()
+                    audio, err = call_tts_sdk(api_key, text, reference_model_id or send_voice_id, raw_bytes, send_ref_text)
+                    if not audio:
+                        audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
+                else:
+                    audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, ref_b64, send_ref_text)
         if audio:
             st.success("Done")
             st.audio(audio, format="audio/wav")
