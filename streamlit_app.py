@@ -167,6 +167,8 @@ def ui() -> None:
             st.markdown("Load and choose from available default voices, or enter a custom voice ID.")
             if "voices" not in st.session_state:
                 st.session_state["voices"] = []
+            if "models" not in st.session_state:
+                st.session_state["models"] = []
             if st.button("Load voices"):
                 voices, err = fetch_voices(api_key, model)
                 if voices:
@@ -175,6 +177,32 @@ def ui() -> None:
                 else:
                     st.warning("No voices from API; using built-in presets")
                     st.session_state["voices"] = STATIC_VOICES.copy()
+            # Load Fish public/my models via SDK
+            with st.expander("Load Fish models (SDK)"):
+                list_mine = st.checkbox("List only my models", value=False)
+                page_size = st.number_input("Page size", min_value=1, max_value=50, value=10, step=1)
+                if st.button("Load models (Fish)"):
+                    if FishSession is None:
+                        st.error("Install fish-audio-sdk to list models")
+                    else:
+                        try:
+                            session = FishSession(api_key)
+                            if list_mine:
+                                models_resp = session.list_models(self_only=True)
+                            else:
+                                models_resp = session.list_models(page_size=page_size)
+                            # Accept list of dicts with id/title
+                            models_list: List[Dict[str, str]] = []
+                            if isinstance(models_resp, list):
+                                for m in models_resp:
+                                    mid = str(m.get("id") or m.get("model_id") or "").strip()
+                                    title = str(m.get("title") or m.get("name") or mid).strip()
+                                    if mid:
+                                        models_list.append({"id": mid, "name": title})
+                            st.session_state["models"] = models_list
+                            st.success(f"Loaded {len(models_list)} models")
+                        except Exception as e:  # noqa: PIE786
+                            st.warning(str(e))
             voices = st.session_state.get("voices", [])
             if voices:
                 options = [f"{v['name']} ({v['id']})" for v in voices]
@@ -187,9 +215,19 @@ def ui() -> None:
             custom_voice = st.text_input("Or custom Voice ID", value="")
             if custom_voice.strip():
                 selected_voice_id = custom_voice.strip()
-            reference_model_id = st.text_input("Reference Model ID (reference_id)", value="")
+            models_state = st.session_state.get("models", [])
+            if models_state:
+                model_opts = [f"{m['name']} ({m['id']})" for m in models_state]
+                model_sel = st.selectbox("Fish Models (reference_id)", model_opts)
+                try:
+                    mi = model_opts.index(model_sel)
+                    reference_model_id = models_state[mi]["id"]
+                except Exception:
+                    reference_model_id = None
+            else:
+                reference_model_id = st.text_input("Reference Model ID (reference_id)", value="")
 
-    text = st.text_area("Text", placeholder="Type text to synthesize...", height=160)
+    text = st.text_area("Text (supports English, 中文, 日本語, 한국어, 粵語)", placeholder="輸入粵語（廣東話）或其他語言文本，例如：你好，今日點呀？", height=160)
 
     col_a, col_b = st.columns(2)
     with col_a:
