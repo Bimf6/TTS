@@ -4,10 +4,6 @@ import base64
 import os
 from typing import Optional, Tuple, List, Dict
 try:
-    import ormsgpack  # local server cloning
-except Exception:  # noqa: PIE786
-    ormsgpack = None
-try:
     from fish_audio_sdk import Session as FishSession, TTSRequest, ReferenceAudio
 except Exception:  # noqa: PIE786
     FishSession = None  # type: ignore
@@ -151,6 +147,32 @@ STATIC_VOICES: List[Dict[str, str]] = [
     {"id": "en_female_2", "name": "English Female 2"},
 ]
 
+def fetch_models_http(api_key: str, self_only: bool = False, page_size: int = 10) -> Tuple[List[Dict[str, str]], str]:
+    if not api_key:
+        return [], "Missing API key"
+    try:
+        headers = {"Authorization": f"Bearer {api_key}"}
+        # Official endpoint provided: /model?self=false|true
+        url = f"https://api.fish.audio/model?self={'true' if self_only else 'false'}"
+        # Add page_size if supported
+        if page_size:
+            url = f"{url}&page_size={page_size}"
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            return [], f"API {resp.status_code}: {resp.text}"
+        data = resp.json()
+        models: List[Dict[str, str]] = []
+        raw = data.get("items", data)
+        if isinstance(raw, list):
+            for m in raw:
+                mid = str(m.get("id") or m.get("model_id") or "").strip()
+                title = str(m.get("title") or m.get("name") or mid).strip()
+                if mid:
+                    models.append({"id": mid, "name": title})
+        return models, ""
+    except Exception as e:
+        return [], str(e)
+
 def ui() -> None:
     st.title("🐟 Fish Audio TTS")
     with st.sidebar:
@@ -158,8 +180,7 @@ def ui() -> None:
         api_key = st.text_input("API Key", type="password", value=default_api_key)
         model = st.selectbox("Model", ["speech-1.5", "speech-1.6", "s1", "s1-mini"], index=0)
         speech_speed = st.slider("Speech Speed", 0.5, 2.0, 1.0, 0.1)
-        backend = st.radio("Backend", ["Fish Cloud API", "Local Fish Server"], index=0)
-        server_url = st.text_input("Local Server URL", value="http://127.0.0.1:8080/v1/tts", disabled=(backend != "Local Fish Server"))
+        st.caption("Cloud API mode")
         voice_mode = st.radio("Voice Source", ["Default voice", "Reference tape"], index=0, horizontal=False)
         selected_voice_id: Optional[str] = None
         reference_model_id: Optional[str] = None
@@ -178,31 +199,34 @@ def ui() -> None:
                     st.warning("No voices from API; using built-in presets")
                     st.session_state["voices"] = STATIC_VOICES.copy()
             # Load Fish public/my models via SDK
-            with st.expander("Load Fish models (SDK)"):
+            with st.expander("Load Fish models"):
                 list_mine = st.checkbox("List only my models", value=False)
                 page_size = st.number_input("Page size", min_value=1, max_value=50, value=10, step=1)
-                if st.button("Load models (Fish)"):
-                    if FishSession is None:
-                        st.error("Install fish-audio-sdk to list models")
+                if st.button("Load models (API)"):
+                    models_list, err = fetch_models_http(api_key, self_only=list_mine, page_size=page_size)
+                    if models_list:
+                        st.session_state["models"] = models_list
+                        st.success(f"Loaded {len(models_list)} models from API")
                     else:
-                        try:
-                            session = FishSession(api_key)
-                            if list_mine:
-                                models_resp = session.list_models(self_only=True)
-                            else:
-                                models_resp = session.list_models(page_size=page_size)
-                            # Accept list of dicts with id/title
-                            models_list: List[Dict[str, str]] = []
-                            if isinstance(models_resp, list):
-                                for m in models_resp:
-                                    mid = str(m.get("id") or m.get("model_id") or "").strip()
-                                    title = str(m.get("title") or m.get("name") or mid).strip()
-                                    if mid:
-                                        models_list.append({"id": mid, "name": title})
-                            st.session_state["models"] = models_list
-                            st.success(f"Loaded {len(models_list)} models")
-                        except Exception as e:  # noqa: PIE786
-                            st.warning(str(e))
+                        st.warning(err or "No models")
+                if FishSession is not None and st.button("Load models (SDK)"):
+                    try:
+                        session = FishSession(api_key)
+                        if list_mine:
+                            models_resp = session.list_models(self_only=True)
+                        else:
+                            models_resp = session.list_models(page_size=page_size)
+                        models_list: List[Dict[str, str]] = []
+                        if isinstance(models_resp, list):
+                            for m in models_resp:
+                                mid = str(m.get("id") or m.get("model_id") or "").strip()
+                                title = str(m.get("title") or m.get("name") or mid).strip()
+                                if mid:
+                                    models_list.append({"id": mid, "name": title})
+                        st.session_state["models"] = models_list
+                        st.success(f"Loaded {len(models_list)} models from SDK")
+                    except Exception as e:  # noqa: PIE786
+                        st.warning(str(e))
             voices = st.session_state.get("voices", [])
             if voices:
                 options = [f"{v['name']} ({v['id']})" for v in voices]
@@ -260,57 +284,25 @@ def ui() -> None:
                 ref_b64 = to_b64(data)
             send_ref_text = (ref_text or None)
         with st.spinner("Generating..."):
-            if backend == "Local Fish Server" and voice_mode == "Reference tape":
-                if ormsgpack is None:
-                    st.error("Local cloning requires 'ormsgpack'. Install with: pip install ormsgpack")
-                    return
-                try:
-                    import io
+            # Cloud path only
+            if FishSession is not None:
+                if voice_mode == "Reference tape":
+                    if ref_audio is None:
+                        st.error("Reference audio required")
+                        return
                     raw_bytes = ref_audio.getvalue()
-                    payload = {
-                        "text": text,
-                        "references": [{"audio": raw_bytes, "text": send_ref_text or ""}],
-                        "format": "wav",
-                        "streaming": False,
-                        "use_memory_cache": "off",
-                        "chunk_length": 300,
-                        "max_new_tokens": 0,
-                        "top_p": 0.8,
-                        "repetition_penalty": 1.1,
-                        "temperature": 0.8,
-                        "seed": None,
-                    }
-                    headers = {"content-type": "application/msgpack"}
-                    r = requests.post(
-                        server_url,
-                        data=ormsgpack.packb(payload),
-                        headers=headers,
-                        timeout=90,
-                    )
-                    if r.status_code == 200:
-                        audio = r.content
-                        err = ""
-                    else:
-                        audio, err = None, f"Local API {r.status_code}: {r.text}"
-                except Exception as e:  # noqa: PIE786
-                    audio, err = None, str(e)
+                    audio, err = call_tts_sdk(api_key, text, None, raw_bytes, send_ref_text)
+                    if not audio:
+                        audio, err = call_tts(api_key, text, model, speech_speed, None, ref_b64, send_ref_text)
+                else:
+                    ref_id = reference_model_id or selected_voice_id
+                    audio, err = call_tts_sdk(api_key, text, ref_id, None, None)
+                    if not audio:
+                        audio, err = call_tts(api_key, text, model, speech_speed, selected_voice_id, None, None)
             else:
                 if FishSession is not None:
-                    if voice_mode == "Reference tape":
-                        if ref_audio is None:
-                            st.error("Reference audio required")
-                            return
-                        raw_bytes = ref_audio.getvalue()
-                        audio, err = call_tts_sdk(api_key, text, None, raw_bytes, send_ref_text)
-                        if not audio:
-                            audio, err = call_tts(api_key, text, model, speech_speed, None, ref_b64, send_ref_text)
-                    else:
-                        ref_id = reference_model_id or send_voice_id
-                        audio, err = call_tts_sdk(api_key, text, ref_id, None, None)
-                        if not audio:
-                            audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id, None, None)
-                else:
-                    audio, err = call_tts(api_key, text, model, speech_speed, send_voice_id if voice_mode == "Default voice" else None, ref_b64 if voice_mode == "Reference tape" else None, send_ref_text if voice_mode == "Reference tape" else None)
+                    pass  # unreached
+                audio, err = call_tts(api_key, text, model, speech_speed, selected_voice_id if voice_mode == "Default voice" else None, ref_b64 if voice_mode == "Reference tape" else None, send_ref_text if voice_mode == "Reference tape" else None)
         if audio:
             st.success("Done")
             st.audio(audio, format="audio/wav")
